@@ -9,40 +9,37 @@ const toml = require('@iarna/toml');
 
 import * as core from '@actions/core';
 
-/**
- * Find all crate names for this one project.
- *
- * As it might be either simple or workspace-based crate,
- * we need to gather all names, as we will need them later
- * to find coverage files.
- */
-async function getCrateNames(root: string): Promise<string[]> {
-    // Probably it is a bad solution and instead we should
-    // find all `Cargo.toml` files instead,
-    // but so far it should work okay.
-    //
-    // Also, this routine expects that `Cargo.lock` exists already,
-    // which should be, because `cargo test` command will be invoked before that
-    const lockContents = await fsPromises.readFile(path.join(root, 'Cargo.lock'));
-    const lock = toml.parse(lockContents);
 
-    let crates: string[] = [];
-    for (const pkg of (lock['package'] || [])) {
-        if (!pkg.source) {
-            crates.push(pkg.name);
+async function getBinNames(root: string): Promise<string[]> {
+    let cargoFiles = glob.sync("**/Cargo.toml", {
+        cwd: root,
+        absolute: true,
+        onlyFiles: true,
+    });
+    core.info(`considering: ${cargoFiles}`);
+
+    let bins: string[] = [];
+    for (const file of cargoFiles) {
+        const cargoTomlContents = await fsPromises.readFile(file);
+        const cargo = toml.parse(cargoTomlContents);
+
+        for (const bin of (cargo['bin'] || [])) {
+            if (bin.name) {
+                bins.push(bin.name)
+            }
         }
     }
-
-    return crates;
+    core.info(`bins found: ${bins}`);
+    return bins
 }
 
 async function getCoverageFiles(root: string): Promise<string[]> {
-    const crates = await getCrateNames(root);
-    core.info(`Found project crates: ${crates}`);
+    const bins = await getBinNames(root);
+    core.info(`Found project bins: ${bins}`);
 
     let patterns: string[] = [];
-    for (const crate of crates) {
-        const replacement = crate.replace(/-/g, '_');
+    for (const bin of bins) {
+        const replacement = bin.replace(/-/g, '_');
         patterns.push(`**/${replacement}*.gc*`);
     }
 
